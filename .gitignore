@@ -1,0 +1,40 @@
+# ARM JSON gerado pelo Bicep
+IaC/*.json
+!IaC/*.parameters.json
+
+# Parâmetros locais e potencialmente sensíveis
+*.local.bicepparam
+*.secret.bicepparam
+*.private.bicepparam
+
+# Arquivos com secrets e variáveis locais
+.env
+.env.*
+*.secrets.json
+*.local.json
+
+# VS Code local
+.vscode/
+*.code-workspace
+
+# PowerShell temporários e relatórios gerados
+*.log
+*.tmp
+*.temp
+*.csv
+*.commands.md
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backups de editor
+*.bak
+*.swp
+*.swo
+*~
+
+# Documentação pessoal de comandos
+commands.md
+config.local.ps1

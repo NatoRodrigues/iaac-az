@@ -1,0 +1,138 @@
+name: Deploy Azure Infrastructure
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+    paths:
+      - "IaC/**"
+      - ".github/workflows/deploy.yml"
+
+permissions:
+  contents: read
+##test
+concurrency:
+  group: azure-infrastructure-production
+  cancel-in-progress: false
+
+env:
+  RG_NAME: ${{ secrets.AZURE_RG_NAME }}
+  LOCATION: ${{ secrets.AZURE_LOCATION }}
+  TEMPLATE_FILE: IaC/main.bicep
+jobs:
+  validate-code:
+    name: Validate Bicep and scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Bash syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash -n IaC/scripts/setup-dev.sh
+          bash -n IaC/scripts/setup-prod.sh
+
+          echo "Bash scripts are syntactically valid."
+
+      - name: Build Bicep template
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az bicep version
+
+          az bicep build \
+            --file "$TEMPLATE_FILE" \
+            --outfile /tmp/main.json
+
+          echo "Bicep build completed successfully."
+
+  deploy:
+    name: Validate, preview and deploy
+    runs-on: ubuntu-latest
+    needs: validate-code
+
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az group create \
+            --name "$RG_NAME" \
+            --location "$LOCATION" \
+            --output none
+
+          echo "Resource group $RG_NAME is ready."
+
+      - name: Validate Azure deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az deployment group validate \
+            --resource-group "$RG_NAME" \
+            --template-file "$TEMPLATE_FILE" \
+            --parameters \
+              adminPassword="${{ secrets.VM_ADMIN_PASSWORD }}" \
+              alertEmail="${{ secrets.ALERT_EMAIL }}" \
+            --output none
+
+          echo "Azure deployment validation completed successfully."
+
+      - name: Preview infrastructure changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az deployment group what-if \
+            --resource-group "$RG_NAME" \
+            --template-file "$TEMPLATE_FILE" \
+            --parameters \
+              adminPassword="${{ secrets.VM_ADMIN_PASSWORD }}" \
+              alertEmail="${{ secrets.ALERT_EMAIL }}"
+
+      - name: Deploy Bicep infrastructure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az deployment group create \
+            --name "iac-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            --resource-group "$RG_NAME" \
+            --template-file "$TEMPLATE_FILE" \
+            --parameters \
+              adminPassword="${{ secrets.VM_ADMIN_PASSWORD }}" \
+              alertEmail="${{ secrets.ALERT_EMAIL }}" \
+            --output table
+
+          echo "Azure infrastructure deployment completed successfully."
+
+      - name: Show deployed resources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az resource list \
+            --resource-group "$RG_NAME" \
+            --query "[].{Name:name, Type:type, Location:location}" \
+            --output table
+
+          echo "Deployed resources listed successfully."
